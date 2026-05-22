@@ -1,0 +1,101 @@
+Created quant_trading directory
+Dependencies installed successfully
+/Users/april/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+Error fetching data for 600519: Length mismatch: Expected axis has 12 elements, new values have 11 elements
+Failed to fetch data.
+Data loader test completed
+/Users/april/Library/Python/3.9/lib/python/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+Error fetching data for 600519: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+Failed to fetch data.
+Data loader test 2 completed
+Downgraded urllib3
+Error fetching data for 600519: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+Failed to fetch data.
+Data loader test 3 completed
+  0%|          | 0/58 [00:00<?, ?it/s]  2%|▏         | 1/58 [00:01<01:15,  1.32s/it]  3%|▎         | 2/58 [00:02<01:04,  1.16s/it]  5%|▌         | 3/58 [00:03<01:00,  1.11s/it]                                              Error: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+AkShare spot test completed
+Error: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+AkShare spot test (no proxy) completed
+[*********************100%***********************]  1 of 1 completed
+Price             Close         High          Low         Open    Volume
+Ticker        600519.SS    600519.SS    600519.SS    600519.SS 600519.SS
+Date                                                                    
+2023-01-03  1566.833130  1574.458984  1545.096842  1567.910834   2603380
+2023-01-04  1562.304565  1574.703252  1554.144393  1566.823893   2041575
+2023-01-05  1631.127075  1631.127075  1569.540934  1573.163648   4794285
+2023-01-06  1633.635742  1640.998913  1618.447496  1635.764065   2490375
+2023-01-09  1667.535278  1675.487162  1637.303724  1661.920116   3097723
+...                 ...          ...          ...          ...       ...
+2026-04-24  1458.489990  1458.880005  1413.099976  1413.099976   5545531
+2026-04-27  1403.199951  1420.000000  1402.199951  1420.000000   7279774
+2026-04-28  1405.000000  1409.390015  1400.109985  1402.000000   3400442
+2026-04-29  1401.170044  1409.750000  1400.280029  1405.000000   3481313
+2026-04-30  1384.790039  1401.170044  1380.000000  1400.000000   5275267
+
+[804 rows x 5 columns]
+yfinance test completed
+200
+Requests test completed
+Error fetching data for 600519: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+Failed to fetch data.
+Data loader test 4 completed
+Error fetching data for 000001: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))
+Failed to fetch data.
+Data loader test 5 completed
+200
+Eastmoney test completed
+Success: 242 rows
+         date  open  high  ...       amount  outstanding_share  turnover
+0  2023-01-03  6.51  6.52  ...  187094064.0       2.935217e+10  0.000882
+1  2023-01-04  6.51  6.58  ...  226321372.0       2.935217e+10  0.001054
+2  2023-01-05  6.60  6.61  ...  221617355.0       2.935217e+10  0.001028
+3  2023-01-06  6.58  6.61  ...  149170538.0       2.935217e+10  0.000692
+4  2023-01-09  6.61  6.61  ...  143998211.0       2.935217e+10  0.000668
+
+[5 rows x 9 columns]
+Sina test completed
+Successfully fetched 242 rows for sh600519
+               open     high  ...  outstanding_share  turnover
+date                          ...                             
+2023-01-03  1567.99  1574.54  ...       1.256198e+09  0.002072
+2023-01-04  1566.91  1574.78  ...       1.256198e+09  0.001625
+2023-01-05  1573.25  1631.21  ...       1.256198e+09  0.003817
+2023-01-06  1635.85  1641.08  ...       1.256198e+09  0.001982
+2023-01-09  1662.01  1675.57  ...       1.256198e+09  0.002466
+
+[5 rows x 8 columns]
+Data loader test 6 (Sina) completed
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.52      0.66      0.58        97
+           1       0.52      0.38      0.44        94
+
+    accuracy                           0.52       191
+   macro avg       0.52      0.52      0.51       191
+weighted avg       0.52      0.52      0.51       191
+
+Model trained successfully
+Strategy and model test completed
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.52      0.66      0.58        97
+           1       0.52      0.38      0.44        94
+
+    accuracy                           0.52       191
+   macro avg       0.52      0.52      0.51       191
+weighted avg       0.52      0.52      0.51       191
+
+Starting Portfolio Value: 100000.00
+Final Portfolio Value: 106933.73
+Backtester test completed
+Created music_creation directory
+Dependencies installed for music_creation
+--- Implementation Completed ---
+Project 1 (Quant Trading) and Project 2 (Music Creation) files are ready.
+Installed socksio and httpx[socks]
+Upgraded gradio and gradio-client
+Downgraded gradio to 4.36.1
