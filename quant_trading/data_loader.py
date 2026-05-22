@@ -5,6 +5,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 import time
+import streamlit as st
 
 # Inject retry strategy
 session = requests.Session()
@@ -18,6 +19,7 @@ session.mount("https://", adapter)
 session.mount("http://", adapter)
 ak._requests_session = session
 
+@st.cache_data(ttl=3600)
 def get_stock_data(symbol, period="daily", start_date="20230101", end_date="20231231"):
     """
     Fetch historical stock data using AkShare (Sina source).
@@ -52,6 +54,7 @@ def get_stock_data(symbol, period="daily", start_date="20230101", end_date="2023
         print(f"Error fetching data for {symbol}: {e}")
         return None
 
+@st.cache_data(ttl=300)
 def get_market_news(date_str=None):
     """
     Fetch high-level market news from CCTV.
@@ -65,6 +68,7 @@ def get_market_news(date_str=None):
         print(f"Error fetching market news: {e}")
         return None
 
+@st.cache_data(ttl=300)
 def get_stock_news(symbol):
     """
     Fetch news for a specific stock.
@@ -78,6 +82,7 @@ def get_stock_news(symbol):
         print(f"Error fetching stock news: {e}")
         return None
 
+@st.cache_data(ttl=300)
 def get_hot_stocks():
     """
     Fetch current hot stock rankings.
