@@ -19,6 +19,10 @@ if 'generator' not in st.session_state:
     with st.spinner("正在加载模型 (首次运行需较长时间)..."):
         st.session_state.generator = MusicGenerator()
 
+@st.cache_data(show_spinner=False)
+def cached_generate(prompt, duration):
+    return st.session_state.generator.generate(prompt, duration)
+
 tab_create, tab_history = st.tabs(["🎹 开始创作", "📚 创作历史"])
 
 with tab_create:
@@ -37,7 +41,7 @@ with tab_create:
             
             with st.spinner("AI 正在创作中..."):
                 try:
-                    audio, sr, gen_time = st.session_state.generator.generate(full_prompt, duration)
+                    audio, sr, gen_time = cached_generate(full_prompt, duration)
                     
                     # Save to file
                     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

@@ -3,11 +3,15 @@ import numpy as np
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report
+import streamlit as st
 
+@st.cache_data
 def calculate_indicators(df):
     """
     Calculate technical indicators for the dataframe.
     """
+    # Create a copy to avoid modifying the original if cached
+    df = df.copy()
     # SMA
     df['sma_5'] = df['close'].rolling(window=5).mean()
     df['sma_10'] = df['close'].rolling(window=10).mean()
@@ -36,6 +40,7 @@ def calculate_indicators(df):
     
     return df.dropna()
 
+@st.cache_resource
 def train_model(df):
     """
     Train a simple Random Forest model to predict price movement.
