@@ -99,7 +99,7 @@ with tab_analysis:
                 if stock_news is not None and not stock_news.empty:
                     for idx, row in stock_news.head(5).iterrows():
                         st.write(f"**{row['发布时间']}**: {row['新闻标题']}")
-                        st.write(f"[阅读全文]({row['文章链接']})")
+                        st.write(f"[阅读全文]({row['新闻链接']})")
                 
                 st.subheader("数据预览")
                 st.dataframe(df.tail(10))
