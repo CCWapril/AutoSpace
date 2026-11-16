@@ -40,7 +40,7 @@
 
 ### 1. 核心引擎（The Core Engine）
 
-- Harness架构 ReAct 循环：思考 → 调用工具 → 观察 → 再思考
+- Main Loop - ReAct (Reason + Act) 循环：思考（Reason / Thought） → 调用工具(Action) → 观察(Observe) → 再思考。参考论文：[ReAct: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/pdf/2210.03629)
 
 ![Harness 整体架构图](image/DAG.png)
 
@@ -52,7 +52,7 @@
 - Tool Registry 统一注册工具
 - 极简工具哲学：工具少而精，不堆几十个工具描述
 - 健壮的 Edit 工具：支持多级模糊匹配
-- 用 Go 并发做并行工具执行
+- 用 Go 并发做并行工具执行（Go 语言基础与并发见：[Go 语言精讲教材](go/Go语言精讲教材.html)）
 
 ### 3. 上下文工程（Context Engineering）
 
