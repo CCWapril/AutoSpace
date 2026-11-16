@@ -1,7 +1,0 @@
-transformers
-torch
-torchaudio
-gradio
-scipy
-numpy
-sentencepiece

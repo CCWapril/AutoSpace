@@ -1,9 +1,0 @@
-streamlit
-akshare
-pandas
-numpy
-scikit-learn
-xgboost
-backtrader
-plotly
-matplotlib
