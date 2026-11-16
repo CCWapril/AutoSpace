@@ -22,3 +22,10 @@ type Message struct {
 	// 如果这是对某个工具调用的响应，此字段必须填写，以告知模型上下文的关联性
 	ToolCallID string `json:"tool_call_id,omitempty"`
 }
+
+// ToolCall 定义了一个工具调用结构体，包含 ID、函数名和参数。
+type ToolCall struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Params json.RawMessage `json:"arguments"` // 原始的 JSON 字符串
+}
