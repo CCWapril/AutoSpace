@@ -1,6 +1,6 @@
 # TypeScript 精简教程：以搭建 Agent 为目的
 
-> 8 章 + 附录。代码均经 tsc --strict 编译校验，第 8 章完整 Agent 已实际运行。
+<!-- > 8 章 + 附录。代码均经 tsc --strict 编译校验，第 8 章完整 Agent 已实际运行。 -->
 
 ## 目录
 

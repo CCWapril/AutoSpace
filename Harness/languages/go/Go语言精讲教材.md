@@ -2,11 +2,9 @@
 
 **从 Python/C++ 到后端微服务**
 
-基础语法 · 类型系统 · 并发编程 · 工程化 · 运行时原理 · trpc-go · 综合实战
-
-适用读者：具备 Python / C++ 基础、目标为后端与微服务开发的工程师
-
-版本基准：Go 1.22 及以上（示例在 Go 1.25 下实测） · 2026 年 11 月
+<!-- 基础语法 · 类型系统 · 并发编程 · 工程化 · 运行时原理 · trpc-go · 综合实战 -->
+<!-- 适用读者：具备 Python / C++ 基础、目标为后端与微服务开发的工程师 -->
+<!-- 版本基准：Go 1.22 及以上（示例在 Go 1.25 下实测） · 2026 年 11 月 -->
 
 ## 目录
 
@@ -632,6 +630,24 @@ fmt.Println(cnt) // 1000
 
 `context.Context` 用于在调用链上传递**取消信号、截止时间和请求级元数据**。几乎所有服务端代码、数据库驱动和 RPC 框架都以它作为第一个参数。
 
+先定义一个模拟耗时任务的 `doWork`：它返回一个 channel，500ms 后送出结果，`ctx` 被取消则提前退出。
+
+```go
+func doWork(ctx context.Context) <-chan string {
+    out := make(chan string, 1) // 带缓冲：调用方放弃接收时，goroutine 也不会卡在发送上
+    go func() {
+        select {
+        case <-time.After(500 * time.Millisecond):
+            out <- "work finished"
+        case <-ctx.Done():
+        }
+    }()
+    return out
+}
+```
+
+再在调用方用 `select` 同时等待结果与超时：
+
 ```go
 ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 defer cancel() // 必须调用，释放资源
@@ -640,9 +656,11 @@ select {
 case <-ctx.Done():
     fmt.Println(ctx.Err()) // context deadline exceeded
 case res := <-doWork(ctx):
-    fmt.Println(res)
+    fmt.Println(res) // work finished
 }
 ```
+
+任务耗时 500ms，小于 2 秒的超时，所以输出 `work finished`。把 `doWork` 里的 500ms 改成 3 秒，则 2 秒后走 `ctx.Done()` 分支，输出 `context deadline exceeded`。
 
 使用规范：
 

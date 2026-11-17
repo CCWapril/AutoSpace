@@ -68,6 +68,18 @@ func (e *QueryError) Error() string {
 }
 func (e *QueryError) Unwrap() error { return e.Err }
 
+// 模拟耗时任务：返回一个 channel，500ms 后送出结果；ctx 被取消则提前退出
+func doWork(ctx context.Context) <-chan string {
+	out := make(chan string, 1) // 带缓冲，避免调用方放弃接收时 goroutine 卡住泄漏
+	go func() {
+		select {
+		case <-time.After(500 * time.Millisecond):
+			out <- "work finished"
+		case <-ctx.Done():
+		}
+	}()
+	return out
+}
 
 // 入口函数，在main包里运行main程序
 func main() {
@@ -231,7 +243,14 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel() // 确保在函数退出时取消上下文,释放资源
 
-	sele
+	select {
+		case <-ctx.Done():
+			fmt.Println(ctx.Err()) // context deadline exceeded
+		case <-time.After(1 * time.Second):
+			fmt.Println("done")
+		case res := <-doWork(ctx):
+			fmt.Println("result:", res)
+	}
 
 
 }
