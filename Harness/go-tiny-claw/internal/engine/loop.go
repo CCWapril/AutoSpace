@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/provider"
 	"github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/schema"
@@ -79,26 +80,62 @@ func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
 		// 4. 执行行动 (Action) 与 获取观察结果 (Observation)
 		log.Printf("[Engine] 模型请求调用 %d 个工具...\n", len(responseMsg.ToolCalls))
 
-		for _, toolCall := range responseMsg.ToolCalls {
-			log.Printf("  -> 🛠️ 执行工具: %s, 参数: %s\n", toolCall.Name, string(toolCall.Arguments))
+		// ---------- 方案 A：串行执行（原实现，保留用于对比） ----------
+		// 多个工具调用逐个执行，耗时 = 各工具耗时之和；执行顺序天然有序，有依赖的命令不会出问题。
+		//
+		// for _, toolCall := range responseMsg.ToolCalls {
+		// 	log.Printf("  -> 🛠️ 执行工具: %s, 参数: %s\n", toolCall.Name, string(toolCall.Arguments))
+		//
+		// 	// 通过 Registry 路由并执行底层工具
+		// 	result := e.registry.Execute(ctx, toolCall)
+		//
+		// 	if result.IsError {
+		// 		log.Printf("  -> ❌ 工具执行报错: %s\n", result.Output)
+		// 	} else {
+		// 		log.Printf("  -> ✅ 工具执行成功 (返回 %d 字节)\n", len(result.Output))
+		// 	}
+		//
+		// 	// 将工具执行的观察结果 (Observation) 封装为 User Message 追加到上下文中
+		// 	// 注意：ToolCallID 必须携带！这是维系大模型推理链条的关键
+		// 	observationMsg := schema.Message{
+		// 		Role:       schema.RoleUser,
+		// 		Content:    result.Output,
+		// 		ToolCallID: toolCall.ID,
+		// 	}
+		// 	contextHistory = append(contextHistory, observationMsg)
+		// }
 
-			// 通过 Registry 路由并执行底层工具
-			result := e.registry.Execute(ctx, toolCall)
+		// ---------- 方案 B：并行执行（当前启用） ----------
+		// 同一轮的多个工具调用并行执行，耗时 ≈ 最慢的那一个；每个 goroutine 只写 results[i]，无需加锁
+		calls := responseMsg.ToolCalls
+		results := make([]schema.ToolResult, len(calls))
+		var wg sync.WaitGroup
+		for i, toolCall := range calls {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				log.Printf("  -> 🛠️ 执行工具: %s(%s), 参数: %s\n", toolCall.Name, toolCall.ID, string(toolCall.Arguments))
 
-			if result.IsError {
-				log.Printf("  -> ❌ 工具执行报错: %s\n", result.Output)
-			} else {
-				log.Printf("  -> ✅ 工具执行成功 (返回 %d 字节)\n", len(result.Output))
-			}
+				// 通过 Registry 路由并执行底层工具
+				results[i] = e.registry.Execute(ctx, toolCall)
 
-			// 将工具执行的观察结果 (Observation) 封装为 User Message 追加到上下文中
-			// 注意：ToolCallID 必须携带！这是维系大模型推理链条的关键
-			observationMsg := schema.Message{
+				if results[i].IsError {
+					log.Printf("  -> ❌ 工具执行报错: %s(%s): %s\n", toolCall.Name, toolCall.ID, results[i].Output)
+				} else {
+					log.Printf("  -> ✅ 工具执行成功: %s(%s) (返回 %d 字节)\n", toolCall.Name, toolCall.ID, len(results[i].Output))
+				}
+			}()
+		}
+		wg.Wait()
+
+		// 按原调用顺序回填 Observation，保证上下文与模型发出的 tool call 一一对应
+		// 注意：ToolCallID 必须携带！这是维系大模型推理链条的关键
+		for i, toolCall := range calls {
+			contextHistory = append(contextHistory, schema.Message{
 				Role:       schema.RoleUser,
-				Content:    result.Output,
+				Content:    results[i].Output,
 				ToolCallID: toolCall.ID,
-			}
-			contextHistory = append(contextHistory, observationMsg)
+			})
 		}
 
 		// 循环回到开头，模型将带着新加入的 Observation 继续它的下一轮思考...

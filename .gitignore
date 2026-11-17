@@ -2,3 +2,6 @@
 
 # 练习代码不上传
 **/practice/
+
+# go-tiny-claw 并行验证测试，仅本地使用
+Harness/go-tiny-claw/internal/engine/loop_test.go
