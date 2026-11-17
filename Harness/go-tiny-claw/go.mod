@@ -1,3 +1,3 @@
-module github.com/CCWapril/go-tiny-claw
+module github.com/CCWapril/AutoSpace/Harness/go-tiny-claw
 
 go 1.22.5
