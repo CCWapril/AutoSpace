@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"strconv"
 	"os"
+	"errors"
+	"sync"
+	"time"
+	"context"
 )
 
 var a int
@@ -51,6 +55,19 @@ func mayFail() error {
       }
     return p     // 接口的类型部分是 *MyErr，不为空
 }
+
+var ErrNotFound = errors.New("not found") // 创建哨兵错误
+
+type QueryError struct {
+    Key string
+    Err error
+}
+
+func (e *QueryError) Error() string {
+    return "query " + e.Key + ": " + e.Err.Error()
+}
+func (e *QueryError) Unwrap() error { return e.Err }
+
 
 // 入口函数，在main包里运行main程序
 func main() {
@@ -147,8 +164,74 @@ func main() {
 		fmt.Println("unknown type")
 	}
 	// 接口值为nil的陷阱:"动态类型 + 动态值"，都为空是接口才等于nil
-	fmt.Println(mayFail() == nil) // false
+	fmt.Println(mayFail() == nil)
 	fmt.Println("--------------------------------")
+
+	fmt.Println("4.错误处理")
+	data, error := os.ReadFile("conf.json")
+	if error != nil {
+    	fmt.Errorf("read conf: %w", error) // %w 包装，保留错误链
+		fmt.Println(data, error)
+	}
+	error0 := fmt.Errorf("handler: %w", &QueryError{Key: "k1", Err: ErrNotFound})
+	var qe *QueryError
+	fmt.Println(errors.Is(error0, ErrNotFound), errors.As(error0, &qe), qe.Key, qe.Err)
+	fmt.Println("--------------------------------")
+
+	fmt.Println("三、并发*")
+	fmt.Println("--------------------------------")
+
+	fmt.Println("1. goroutine")
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { 
+		defer wg.Done()
+		fmt.Println("in goroutine") }() // 轻量级协程
+	wg.Wait()
+	fmt.Println("--------------------------------")
+
+	fmt.Println("2. channel")
+	// goroutine 类似python queue 往里放从里取
+	ch := make(chan int)
+	go func() { ch <- 42 }()
+	go func() { ch <- 41 }()
+	fmt.Println(<-ch)
+	fmt.Println(<-ch)
+	fmt.Println("--------------------------------")
+
+	fmt.Println("3. select") // 多路复用，哪个就绪就执行哪个
+	select {
+	case v := <-ch:
+    	fmt.Println("got", v)
+	case <-time.After(50 * time.Millisecond):
+    	fmt.Println("timeout")
+	default: // 非阻塞操作
+		fmt.Println("nothing ready")
+	}
+	fmt.Println("--------------------------------")
+
+	fmt.Println("4.sync包")
+	var mu sync.Mutex // 互斥锁，保护共享资源,RWMutex读写锁
+	cnt0 := 0
+	// var wg sync.WaitGroup // 等待一组 goroutine 结束
+	for i := 0; i < 1000; i++ {
+    	wg.Add(1)
+    	go func() {
+        	defer wg.Done()
+        	mu.Lock()
+        	cnt0++
+        	mu.Unlock()
+    	}()
+	}
+	wg.Wait()
+	fmt.Println(cnt0) // 1000
+	fmt.Println("--------------------------------")
+
+	fmt.Println("5.context")
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel() // 确保在函数退出时取消上下文,释放资源
+
+	sele
 
 
 }

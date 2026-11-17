@@ -60,6 +60,14 @@
   - [第 2 步：带并发度限制的批量检查](#第-2-步带并发度限制的批量检查)
   - [第 3 步：组装入口](#第-3-步组装入口)
   - [第 4 步：验证与改进](#第-4-步验证与改进)
+- [第 9 章 综合实战：构建工具调用 Agent](#第-9-章-综合实战构建工具调用-agent)
+  - [第 1 步：定义消息与工具说明书](#第-1-步定义消息与工具说明书)
+  - [第 2 步：封装 LLM 客户端](#第-2-步封装-llm-客户端)
+  - [第 3 步：定义工具](#第-3-步定义工具)
+  - [第 4 步：实现 Agent 主循环](#第-4-步实现-agent-主循环)
+  - [第 5 步：组装入口并运行](#第-5-步组装入口并运行)
+  - [第 6 步：不调用真实模型的测试](#第-6-步不调用真实模型的测试)
+  - [第 7 步：验证与改进](#第-7-步验证与改进)
 - [附录 A 速查表](#附录-a-速查表)
   - [A.1 语法速查](#a1-语法速查)
   - [A.2 并发安全检查清单](#a2-并发安全检查清单)
@@ -1171,6 +1179,455 @@ func main() {
 2. 为 `checkAll` 编写测试：用 `net/http/httptest` 启动本地假服务，避免依赖外网。
 3. 改进方向：加入重试与退避；使用 `errgroup` 取代手写 `WaitGroup`；把结果以 JSON 输出；增加 `-c`（并发度）、`-t`（超时）命令行参数。
 4. 进阶挑战：把它改造为 HTTP 服务，参照第 5 章加入优雅退出；再用 trpc-go 把检查能力暴露成一个 RPC 接口。
+
+## 第 9 章 综合实战：构建工具调用 Agent
+
+本章用一个完整项目串联前面所学：从零写一个能调用工具的 LLM Agent。建议先自己独立实现，再对照示例代码。完整可运行的源码随教材附带，位于 `code/agent/` 目录，本章各步骤的代码都来自这些文件（为节省篇幅，省略了每个文件开头的 `package` 与 `import`，编辑器可自动补全）。
+
+### 项目目标
+
+实现一个命令行 Agent：接收用户的问题，调用大模型；模型需要外部信息时会要求调用工具（示例是查天气），Agent 负责并行执行这些工具，把结果交还给模型，直到模型给出最终答案。
+
+Agent 的本质就是下面这个循环，没有更多魔法：
+
+```text
+用户输入 -> 调用 LLM -> 模型要调工具吗？
+                         要 -> 执行工具(并行) -> 结果追加进历史 -> 回到"调用 LLM"
+                         不要 -> 把模型回复作为最终答案
+```
+
+模型本身不会执行任何代码，它只会返回"我想调用 `get_weather`，参数是 `{"city":"深圳"}`"。真正执行的是你的 Go 程序。所以 Agent 开发的工作量集中在：消息结构、工具抽象、循环控制、错误处理，以及并发与超时。
+
+本项目用到的前面章节知识如下：
+
+| 知识点                     | 在项目中的作用                   | 章节      |
+| ----------------------- | ------------------------- | ------- |
+| interface               | 抽象 `LLM` 与 `Tool`，便于替换与测试 | 3.3     |
+| error 与 `%w`            | 包装错误、区分是否可重试              | 3.4     |
+| JSON 标签                 | 与大模型接口收发数据                | 5.3     |
+| `net/http` 与超时          | 调用模型接口                    | 5.3、5.4 |
+| goroutine 与 `WaitGroup` | 并行执行同一轮的多个工具调用            | 4.1、4.4 |
+| `context`               | 超时与取消                     | 4.5     |
+| `httptest` 与表驱动测试       | 不依赖真实模型的测试                | 5.2     |
+
+模型接口采用 OpenAI 兼容的 `/chat/completions` 协议，换一个 `base_url` 就能接入其他兼容该协议的厂商。项目结构：
+
+```text
+agent/
+  types.go       消息与工具说明书的数据结构
+  client.go      LLM 接口与 OpenAI 兼容客户端
+  tool.go        Tool 接口与示例工具
+  agent.go       Agent 主循环
+  main.go        入口
+  agent_test.go  用 httptest 伪造模型服务的测试
+  go.mod
+```
+
+### 第 1 步：定义消息与工具说明书
+
+先把协议里的数据结构用 struct 表达出来：
+
+```go
+// types.go
+// Message 对应 OpenAI 兼容接口里的一条对话消息
+type Message struct {
+    Role       string     `json:"role"` // system / user / assistant / tool
+    Content    string     `json:"content,omitempty"`
+    ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // assistant 发起的工具调用
+    ToolCallID string     `json:"tool_call_id,omitempty"` // tool 消息对应哪次调用
+}
+
+type ToolCall struct {
+    ID       string       `json:"id"`
+    Type     string       `json:"type"`
+    Function FunctionCall `json:"function"`
+}
+
+type FunctionCall struct {
+    Name      string `json:"name"`
+    Arguments string `json:"arguments"` // 注意：是 JSON 字符串，不是对象
+}
+
+// ToolSpec 是发给模型的工具说明书
+type ToolSpec struct {
+    Type     string  `json:"type"`
+    Function FuncDef `json:"function"`
+}
+
+type FuncDef struct {
+    Name        string          `json:"name"`
+    Description string          `json:"description"`
+    Parameters  json.RawMessage `json:"parameters"` // JSON Schema，原样透传
+}
+```
+
+这里有三个要点，都源于第 5.3 节的 JSON 知识：
+
+- `Arguments` 是一个**包着 JSON 的字符串**，不是 JSON 对象。模型返回的工具参数形如 `"{\"city\":\"深圳\"}"`，需要自己再 `json.Unmarshal` 一次。
+- `Parameters` 是 JSON Schema，结构多变，没必要逐个建模，用 `json.RawMessage` 原样透传即可。
+- `Content` 加了 `omitempty`：模型发起工具调用时内容为空，序列化时就不应带上这个字段。
+
+### 第 2 步：封装 LLM 客户端
+
+先定义接口，主循环只依赖接口，不依赖具体厂商：
+
+```go
+// client.go
+// LLM 抽象成接口：生产用真实客户端，测试用 mock
+type LLM interface {
+    Chat(ctx context.Context, msgs []Message, tools []ToolSpec) (Message, error)
+}
+
+type OpenAIClient struct {
+    BaseURL, APIKey, Model string
+    HTTP                   *http.Client
+}
+
+type chatReq struct {
+    Model    string     `json:"model"`
+    Messages []Message  `json:"messages"`
+    Tools    []ToolSpec `json:"tools,omitempty"`
+}
+```
+
+`Chat` 负责重试策略：
+
+```go
+// client.go
+func (c *OpenAIClient) Chat(ctx context.Context, msgs []Message, tools []ToolSpec) (Message, error) {
+    body, err := json.Marshal(chatReq{Model: c.Model, Messages: msgs, Tools: tools})
+    if err != nil {
+        return Message{}, err
+    }
+    var lastErr error
+    for attempt := 0; attempt < 3; attempt++ {
+        if attempt > 0 { // 退避重试：1s、2s
+            select {
+            case <-time.After(time.Duration(attempt) * time.Second):
+            case <-ctx.Done():
+                return Message{}, ctx.Err()
+            }
+        }
+        msg, retry, err := c.once(ctx, body)
+        if err == nil {
+            return msg, nil
+        }
+        lastErr = err
+        if !retry {
+            break
+        }
+    }
+    return Message{}, lastErr
+}
+```
+
+`once` 发出一次请求，并告诉调用方这个错误值不值得重试：
+
+```go
+// client.go
+// once 发一次请求；retry 表示这个错误值得重试（429 / 5xx）
+func (c *OpenAIClient) once(ctx context.Context, body []byte) (Message, bool, error) {
+    req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+        c.BaseURL+"/chat/completions", bytes.NewReader(body))
+    if err != nil {
+        return Message{}, false, err
+    }
+    req.Header.Set("Content-Type", "application/json")
+    req.Header.Set("Authorization", "Bearer "+c.APIKey)
+    resp, err := c.HTTP.Do(req)
+    if err != nil {
+        return Message{}, true, err
+    }
+    defer resp.Body.Close()
+    data, _ := io.ReadAll(resp.Body)
+    if resp.StatusCode != http.StatusOK {
+        retry := resp.StatusCode == 429 || resp.StatusCode >= 500
+        return Message{}, retry, fmt.Errorf("llm status %d: %s", resp.StatusCode, data)
+    }
+    var out struct {
+        Choices []struct {
+            Message Message `json:"message"`
+        } `json:"choices"`
+    }
+    if err := json.Unmarshal(data, &out); err != nil || len(out.Choices) == 0 {
+        return Message{}, false, fmt.Errorf("bad llm response: %s", data)
+    }
+    return out.Choices[0].Message, false, nil
+}
+```
+
+设计说明：
+
+1. 用 `NewRequestWithContext`，请求能被取消和超时。
+2. 只重试**网络错误、429（限流）和 5xx**；其他 4xx（参数错误、鉴权失败）重试没有意义。
+3. 退避等待时用 `select` 同时监听 `ctx.Done()`，上游一取消就立刻退出，不会傻等。
+4. `defer resp.Body.Close()` 防止连接泄漏。`http.Client` 的 `Timeout` 在 `main` 中设置，默认无限等待是个隐患。
+
+### 第 3 步：定义工具
+
+每个工具只需要说明"我是谁"和"怎么调用我"：
+
+```go
+// tool.go
+type Tool interface {
+    Spec() ToolSpec
+    Call(ctx context.Context, args json.RawMessage) (string, error)
+}
+
+// FuncTool 用一个函数快速实现 Tool
+type FuncTool struct {
+    Def FuncDef
+    Fn  func(ctx context.Context, args json.RawMessage) (string, error)
+}
+
+func (t FuncTool) Spec() ToolSpec { return ToolSpec{Type: "function", Function: t.Def} }
+
+func (t FuncTool) Call(ctx context.Context, a json.RawMessage) (string, error) {
+    return t.Fn(ctx, a)
+}
+```
+
+示例工具查天气，这里返回的是固定内容，实际项目替换成真实 API 调用即可：
+
+```go
+// tool.go
+func weatherTool() Tool {
+    return FuncTool{
+        Def: FuncDef{
+            Name:        "get_weather",
+            Description: "查询指定城市的当前天气",
+            Parameters: json.RawMessage(`{"type":"object",
+                "properties":{"city":{"type":"string","description":"城市名"}},
+                "required":["city"]}`),
+        },
+        Fn: func(ctx context.Context, raw json.RawMessage) (string, error) {
+            var a struct {
+                City string `json:"city"`
+            }
+            if err := json.Unmarshal(raw, &a); err != nil {
+                return "", fmt.Errorf("参数解析失败: %w", err)
+            }
+            return a.City + "：晴，22 摄氏度", nil // 这里换成真实的天气 API 调用
+        },
+    }
+}
+```
+
+新增一个工具，只需要再写一个返回 `Tool` 的函数并传给 Agent，主循环完全不用改。这就是接口带来的好处。
+
+### 第 4 步：实现 Agent 主循环
+
+先看结构与构造函数：
+
+```go
+// agent.go
+type Agent struct {
+    llm      LLM
+    tools    map[string]Tool
+    specs    []ToolSpec
+    history  []Message
+    MaxSteps int
+}
+
+func NewAgent(llm LLM, system string, tools ...Tool) *Agent {
+    a := &Agent{llm: llm, tools: map[string]Tool{}, MaxSteps: 8}
+    for _, t := range tools {
+        a.tools[t.Spec().Function.Name] = t
+        a.specs = append(a.specs, t.Spec())
+    }
+    a.history = []Message{{Role: "system", Content: system}}
+    return a
+}
+```
+
+
+主循环 `Run` 就是前面画的那个循环：
+
+```go
+// agent.go
+// Run 是 Agent 的核心循环：问模型 -> 执行工具 -> 把结果喂回去 -> 直到模型给出最终答案
+func (a *Agent) Run(ctx context.Context, input string) (string, error) {
+    a.history = append(a.history, Message{Role: "user", Content: input})
+    for step := 0; step < a.MaxSteps; step++ {
+        msg, err := a.llm.Chat(ctx, a.history, a.specs)
+        if err != nil {
+            return "", fmt.Errorf("step %d: %w", step, err)
+        }
+        a.history = append(a.history, msg)
+        if len(msg.ToolCalls) == 0 {
+            return msg.Content, nil // 没有工具调用，就是最终答案
+        }
+        a.history = append(a.history, a.runTools(ctx, msg.ToolCalls)...)
+    }
+    return "", errors.New("超过最大步数，Agent 未收敛")
+}
+```
+
+并行执行工具，并把错误转成文本交给模型：
+
+```go
+// agent.go
+// runTools 并行执行同一轮里的多个工具调用，结果顺序与调用顺序一致
+func (a *Agent) runTools(ctx context.Context, calls []ToolCall) []Message {
+    out := make([]Message, len(calls))
+    var wg sync.WaitGroup
+    for i, c := range calls {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            out[i] = Message{Role: "tool", ToolCallID: c.ID, Content: a.callOne(ctx, c)}
+        }()
+    }
+    wg.Wait()
+    return out
+}
+
+// callOne 的错误不向上抛，而是变成文本交给模型，让它自己决定重试或换方案
+func (a *Agent) callOne(ctx context.Context, c ToolCall) string {
+    t, ok := a.tools[c.Function.Name]
+    if !ok {
+        return "error: 未知工具 " + c.Function.Name
+    }
+    slog.Info("tool call", "name", c.Function.Name, "args", c.Function.Arguments)
+    res, err := t.Call(ctx, []byte(c.Function.Arguments))
+    if err != nil {
+        return "error: " + err.Error()
+    }
+    return res
+}
+```
+
+几个关键设计：
+
+| 设计                         | 原因                                     |
+| -------------------------- | -------------------------------------- |
+| `MaxSteps` 上限              | 防止模型反复调用工具陷入死循环，也控制成本                  |
+| 工具错误转成 `error: ...` 文本     | 让模型自行修正参数或换方案，而不是中断整个流程                |
+| 未知工具名也返回文本                 | 模型有时会"幻觉"出不存在的工具                       |
+| `tools` 用 map、`specs` 用切片  | map 方便按名查找，切片保证发给模型的工具顺序稳定（map 遍历顺序随机） |
+| 每个 goroutine 只写 `out[i]`   | 各写各的下标，无需加锁，结果顺序与调用顺序一致                |
+| 每条 `tool` 消息带 `ToolCallID` | 协议要求，缺失会导致接口报错                         |
+
+这里用到了第 4 章的并发模式：`WaitGroup` 等待一组 goroutine，Go 1.22 起循环变量每轮迭代独立，闭包里可以直接使用 `i` 和 `c`。
+
+### 补充：限制并发度
+
+`runTools` 会为同一轮的每个工具调用各开一个 goroutine。如果模型一次要求调用几十个工具，或者工具内部会访问有限流的下游，就需要限制同时执行的数量。惯用法是用带缓冲的 channel 当信号量，容量就是最大并发数：
+
+```go
+var wg sync.WaitGroup
+sem := make(chan struct{}, 4) // 最多同时 4 个
+for _, c := range calls {
+    sem <- struct{}{}         // 拿令牌，满了就阻塞
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        defer func() { <-sem }() // 归还令牌
+        run(c)                   // 执行工具
+    }()
+}
+wg.Wait()
+```
+
+### 第 5 步：组装入口并运行
+
+```go
+// main.go
+func main() {
+    llm := &OpenAIClient{
+        BaseURL: os.Getenv("LLM_BASE_URL"), // 例如 https://api.openai.com/v1
+        APIKey:  os.Getenv("LLM_API_KEY"),
+        Model:   os.Getenv("LLM_MODEL"),
+        HTTP:    &http.Client{Timeout: 60 * time.Second},
+    }
+    agent := NewAgent(llm, "你是一个乐于助人的助手，需要时调用工具。", weatherTool())
+
+    ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+    defer cancel()
+    ans, err := agent.Run(ctx, "深圳今天天气怎么样？")
+    if err != nil {
+        log.Fatal(err)
+    }
+    fmt.Println(ans)
+}
+```
+
+运行方式：
+
+```bash
+export LLM_BASE_URL=https://你的厂商/v1
+export LLM_API_KEY=你的key
+export LLM_MODEL=模型名
+cd agent && go run .
+```
+
+真实输出取决于你接入的模型。以天气为例，终端会先打印一行 `tool call name=get_weather ...` 的日志，随后输出模型根据工具结果组织的回答。
+
+### 第 6 步：不调用真实模型的测试
+
+Agent 的行为如果只靠手工试，回归全凭运气。利用第 5.2 节的 `httptest`，起一个本地假服务：第一次请求返回"请调用 `get_weather`"，第二次返回最终答案，并检查第二次请求里带上了工具结果：
+
+```go
+// agent_test.go
+// 用 httptest 伪造一个 OpenAI 兼容服务：第一次要求调工具，第二次给最终答案
+func TestAgentToolLoop(t *testing.T) {
+    calls := 0
+    var secondReq string
+    srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        b, _ := io.ReadAll(r.Body)
+        calls++
+        w.Header().Set("Content-Type", "application/json")
+        if calls == 1 {
+            io.WriteString(w, `{"choices":[{"message":{"role":"assistant","tool_calls":[
+                {"id":"c1","type":"function","function":{"name":"get_weather","arguments":"{\"city\":\"深圳\"}"}}]}}]}`)
+            return
+        }
+        secondReq = string(b)
+        io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"深圳晴，22 度"}}]}`)
+    }))
+    defer srv.Close()
+
+    llm := &OpenAIClient{BaseURL: srv.URL, APIKey: "k", Model: "m", HTTP: srv.Client()}
+    ans, err := NewAgent(llm, "sys", weatherTool()).Run(context.Background(), "深圳天气？")
+    if err != nil || ans != "深圳晴，22 度" {
+        t.Fatalf("ans=%q err=%v", ans, err)
+    }
+    if !strings.Contains(secondReq, `"role":"tool"`) || !strings.Contains(secondReq, "tool_call_id") {
+        t.Fatalf("第二次请求没有带上工具结果: %s", secondReq)
+    }
+    var probe map[string]any
+    if json.Unmarshal([]byte(secondReq), &probe) != nil {
+        t.Fatal("请求体不是合法 JSON")
+    }
+}
+```
+
+执行 `go test -race -v ./...`，预期看到 `--- PASS: TestAgentToolLoop`。由于 `Agent` 依赖的是 `LLM` 接口，也可以直接写一个实现该接口的 mock 来测试主循环，完全不走 HTTP。
+
+### 第 7 步：验证与改进
+
+1. 用 `go vet ./...` 与 `go test -race ./...` 确认没有静态问题和数据竞争。
+2. 新增一个 `calculator` 工具，参数为表达式字符串，让 Agent 能回答算术问题。
+3. 给 `runTools` 增加并发度限制（参见上面的"补充：限制并发度"），并写测试验证最大并发数不超过限制。
+4. 实现对话历史截断：保留 `system` 消息和最近 N 条，注意不能把一条带 `tool_calls` 的 `assistant` 消息与它对应的 `tool` 消息拆开。
+5. 进阶挑战：流式输出（解析 SSE，用 channel 逐段推送）；接入 MCP，把外部工具适配成 `Tool`；用 trpc-go 把 Agent 封装成 RPC 服务（参照第 7 章）。
+
+### 常见坑
+
+- 把 `arguments` 当成对象解析：它是字符串，要二次 `Unmarshal`。
+- 工具出错就直接中断：应把错误文本回传给模型，让它自行修正。
+- 没有 `MaxSteps`：模型陷入循环会无限消耗调用额度。
+- 历史无限增长：超过上下文窗口后接口会直接报错，需要截断或摘要策略。
+- 没设 `http.Client.Timeout` 和 `context` 超时：上游一卡，整个服务跟着卡死。
+- `tool` 消息缺 `tool_call_id`，或没有紧跟在对应的 `assistant` 消息之后：接口返回 400。
+- 多个请求共用同一个 `Agent`：`history` 被并发追加，数据错乱。一个会话对应一个 `Agent`。
+- 日志里打印请求头：API key 泄露。日志只记录工具名、耗时与状态码。
+
+### 本章小结
+
+Agent 看起来高大上，落到代码上就是"一个接口抽象、一个循环、一组并发的工具调用"。用 interface 隔离变化，用 `context` 管住超时，用 `-race` 与 `httptest` 守住正确性，这些都是前面章节反复强调的 Go 工程习惯，在这里集中用了一遍。
+
+---
 
 ## 附录 A 速查表
 
