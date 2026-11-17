@@ -1,74 +1,50 @@
+// cmd/claw/main.go
 package main
 
 import (
-	"context"
-	"log"
-	"os"
+    "context"
+    "log"
+    "os"
 
-	"github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/engine"
-	// "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/provider"
-	"github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/schema"
-	// "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/tools"
+    "github.com/larksuite/oapi-sdk-go/v3/core/httpserverext"
+    "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/engine"
+    "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/feishu"
+    "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/provider"
+    // "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/schema"
+    "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/tools"
 )
 
-// ==========================================
-// 1. 伪造的大模型 Provider
-// ==========================================
-type mockProvider struct {
-	turn int
-}
-
-// 模拟大模型的响应：第一轮请求执行 bash，第二轮输出最终结果
-func (m *mockProvider) Generate(ctx context.Context, msgs []schema.Message, _ []schema.ToolDefinition) (*schema.Message, error) {
-	m.turn++
-	if m.turn == 1 {
-		return &schema.Message{
-			Role:    schema.RoleAssistant,
-			Content: "让我来看看当前目录下有什么文件。",
-			ToolCalls: []schema.ToolCall{
-				{ID: "call_123", Name: "bash", Arguments: []byte(`{"command": "ls -la"}`)},
-			},
-		}, nil
-	}
-
-	return &schema.Message{
-		Role:    schema.RoleAssistant,
-		Content: "我看到了文件列表，里面包含 main.go，任务完成！",
-	}, nil
-}
-
-// ==========================================
-// 2. 伪造的 Tool Registry
-// ==========================================
-type mockRegistry struct{}
-
-func (m *mockRegistry) GetAvailableTools() []schema.ToolDefinition { return nil }
-
-func (m *mockRegistry) Execute(ctx context.Context, call schema.ToolCall) schema.ToolResult {
-	// 直接返回一段伪造的终端输出
-	return schema.ToolResult{
-		ToolCallID: call.ID,
-		Output:     "-rw-r--r--  1 user group  234 Oct 24 10:00 main.go\n",
-		IsError:    false,
-	}
-}
-
-// ==========================================
-// 3. 组装运行
-// ==========================================
 func main() {
-	// 获取当前执行目录作为 WorkDir 物理边界
-	workDir, _ := os.Getwd()
+    // 1. 初始化引擎依赖
+    workDir, _ := os.Getwd()
 
-	p := &mockProvider{}
-	r := &mockRegistry{}
+    // 默认使用智谱 GLM-4
+    if os.Getenv("ZHIPU_API_KEY") == "" {
+        log.Fatal("请先导出 ZHIPU_API_KEY 环境变量")
+    }
+    llmProvider := provider.NewZhipuOpenAIProvider("glm-4.5-air")
 
-	// 实例化核心引擎
-	eng := engine.NewAgentEngine(p, r, workDir)
+    registry := tools.NewRegistry()
+    registry.Register(tools.NewReadFileTool(workDir))
+    registry.Register(tools.NewWriteFileTool(workDir))
+    registry.Register(tools.NewBashTool(workDir))
+    registry.Register(tools.NewEditFileTool(workDir))
 
-	// 发起任务指令
-	err := eng.Run(context.Background(), "帮我检查当前目录的文件")
-	if err != nil {
-		log.Fatalf("引擎崩溃: %v", err)
-	}
+    // 开启慢思考
+    eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
+
+    // 2. 初始化飞书 Bot 调度器
+    bot := feishu.NewFeishuBot(eng)
+    handler := httpserverext.NewEventHandlerFunc(bot.GetEventDispatcher())
+
+    // 3. 注册路由并启动 HTTP 服务
+    http.HandleFunc("/webhook/event", handler)
+
+    port := ":48080"
+    log.Printf("🚀 go-tiny-claw 飞书服务端已启动，正在监听 %s 端口\n", port)
+
+    err := http.ListenAndServe(port, nil)
+    if err != nil {
+        log.Fatalf("服务器启动失败: %v", err)
+    }
 }

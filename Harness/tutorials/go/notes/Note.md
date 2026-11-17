@@ -3,11 +3,11 @@
 <!-- |   |   | -->
 <!-- | - | - | -->
 
-> 来源：腾讯学堂培养项目《从 0 开始构建 Agent Harness | 极客时间》（作者 Tony Bai）  
-> 链接：<https://sdc.qq.com/s/Zkma1k?scheme_type=mooc\&mooc_course_id=uM2LYJ8G>  
+<!-- > 来源：腾讯学堂培养项目《从 0 开始构建 Agent Harness | 极客时间》（作者 Tony Bai）   -->
+<!-- > 链接：<https://sdc.qq.com/s/Zkma1k?scheme_type=mooc\&mooc_course_id=uM2LYJ8G>   -->
 <!-- > 说明：学堂接口只返回课程简介，未返回 24 讲正文。本笔记依据课程简介整理，标注"（补充）"的内容为个人工程经验补充，非课程原文。 -->
 
----
+<!-- --- -->
 
 ## 一、什么是 Harness
 
@@ -42,22 +42,47 @@
 
 - Main Loop - ReAct (Reason + Act) 循环：思考（Reason / Thought） → 调用工具(Action) → 观察(Observe) → 再思考。参考论文：[ReAct: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/pdf/2210.03629)
 
-![Harness 整体架构图](images/DAG.png)
+![DAG](images/DAG.png)
 
+- 引入 Thinking 慢思考机制，提升复杂任务规划成功率：Two-Stage ReAct两阶段
+    - 慢思考：仅传context，输出纯文本的推理与规划（核心修改engine/loop.go）
+    - 行动：传入context及tool schema，按照规划完成输出
+    - 观察：返回结果
 - 多模型适配层：接 Claude 和 OpenAI 兼容 API
-- 引入 Thinking 慢思考机制，提升复杂任务规划成功率
+![API](images/API.png)
 
 ### 2. 工具层(Action & Tools)
 
-- Tool Registry 统一注册工具
-- 极简工具哲学：工具少而精，不堆几十个工具描述
-- 健壮的 Edit 工具：支持多级模糊匹配
-- 用 Go 并发做并行工具执行（Go 语言基础与并发见：[Go 语言精讲教材](../tutorials/go/Go语言精讲教材.md)）
+- Tool Registry 统一注册工具，核心职责：动态挂载（Register）、描述暴露（Expose Schema）、路由分发与执行（Dispatch & Execute）。构建动态 Registry & Tool接口：
+    - 定义BaseTool接口，能接收一段原始的 JSON 字节数组
+    - 实现路由和分发
+    - 物理工具read_file，向大模型清晰地描述这个工具的用途和参数格式，实现长度截断保护
+- 极简主义与 YOLO（You Only Live Once）模式。核心4个基础工具：
+    - read
+    - write：指定工作区，创建文件
+    - edit：精准的局部代码替换（包含特殊转义符的多行正则表达式易翻车）
+      - 最大幻觉：格式丢失
+      - 降级策略：多级模糊匹配链（精确匹配>>换行符归一化匹配>>整体去空匹配>>逐行去缩进匹配）
+    - bash：工作区约束、底线（时间预算、工作区目录、错误原样回传、长度截断保护）
+- 用 Go 并发做并行工具执行（Go 语言基础与并发见：[Go 语言精讲教材](../Go语言精讲教材.md)）并发 Fork-Join：如何规避并发带来的数据竞争
+    - 每个文件路径维护单独 `RWMutex`，“先获锁，再操作文件”
+    - 先读后写/先写后读
+    - 细节：并发安全陷阱、无锁设计、上下文顺序对齐
 
 ### 3. 上下文工程（Context Engineering）
 
-- 系统提示词动态组装
+- 系统提示词 Prompt 动态组装
 - 超长文本阶梯降级压缩（Compaction）
+![Prompt](images/prompt.png)
+    - skill规范(渐进式暴露 Progressive Disclosure)
+    ```text
+    my-skill/
+    ├── SKILL.md          # 必填：包含 YAML 元数据与 Markdown 格式的执行指令
+    ├── scripts/          # 选填：技能专属的可执行脚本
+    ├── references/       # 选填：参考文档
+    └── assets/           # 选填：模板或静态资源
+    ```
+
 - **记忆和待办外部化到文件系统**，不用内部状态机
 
 ### 4. 稳定性与多智能体(Safety & Coordination)

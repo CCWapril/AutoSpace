@@ -1,15 +1,18 @@
+```text
 go-tiny-claw/
 ├── cmd/
 │   └── claw/
-│       └── main.go          # 测试入口：将挂载 Mock 组件运行 Main Loop
+│       └── main.go          # 【重构】启动 HTTP Server 监听飞书 Webhook
 ├── internal/
-│   ├── engine/              # 【核心引擎层】
-│   │   └── loop.go          # 本讲核心：Main Loop 逻辑
-│   ├── provider/            # 【模型适配层】
-│   │   └── interface.go     # LLM Provider 接口定义
-│   ├── schema/              # 【公共数据结构】
-│   │   └── message.go       # 统一的消息与工具调用类型定义
-│   └── tools/               # 【工具与执行层】
-│       └── registry.go      # 工具注册与分发接口
+│   ├── engine/
+│   │   ├── loop.go          # 【重构】将 fmt.Println 替换为 Reporter 接口调用
+│   │   ├── reporter.go      # 【新增】定义 Reporter 接口规范
+│   │   └── terminal_reporter.go # (本讲暂时用不到，预留给后续的 CLI)
+│   ├── feishu/              # 【新增】飞书集成层
+│   │   └── bot.go           # 实现事件监听与飞书消息 API 的封装
+│   ├── provider/            # 保持不变
+│   ├── schema/              # 保持不变
+│   └── tools/               # 保持不变
 ├── go.mod
-└── README.md
+└── go.sum
+```

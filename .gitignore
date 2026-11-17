@@ -5,3 +5,6 @@
 
 # go-tiny-claw 并行验证测试，仅本地使用
 Harness/go-tiny-claw/internal/engine/loop_test.go
+
+# go-tiny-claw 本地草稿，不上传
+Harness/go-tiny-claw/cmd/claw/_main.go

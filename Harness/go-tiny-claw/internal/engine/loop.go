@@ -9,137 +9,123 @@ import (
 	"github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/provider"
 	"github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/schema"
 	"github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/tools"
+    ctxpkg "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/context"
 )
 
 // AgentEngine 是微型 OS 的核心驱动
 type AgentEngine struct {
 	provider provider.LLMProvider
 	registry tools.Registry
-
 	// WorkDir (工作区): 借鉴 OpenClaw 的理念，Agent 必须有一个明确的物理边界
 	WorkDir string
+	EnableThinking bool // 【新增】慢思考模式开关
+    composer *ctxpkg.PromptComposer // 【新增】引擎持有 Composer 实例
 }
 
-func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string) *AgentEngine {
+func NewAgentEngine(p provider.LLMProvider, r tools.Registry, workDir string, EnableThinking bool) *AgentEngine {
 	return &AgentEngine{
 		provider: p,
 		registry: r,
 		WorkDir:  workDir,
+		EnableThinking: EnableThinking,
+        composer:  ctxpkg.NewPromptComposer(workDir), // 初始化组装器
 	}
 }
 
-// Run 启动 Agent 的生命周期
-func (e *AgentEngine) Run(ctx context.Context, userPrompt string) error {
-	log.Printf("[Engine] 引擎启动，锁定工作区: %s\n", e.WorkDir)
+// Run 方法新增了 Reporter 参数
+func (e *AgentEngine) Run(ctx context.Context, userPrompt string, reporter Reporter) error {
+    log.Printf("[Engine] 引擎启动，锁定工作区: %s\n", e.WorkDir)
 
-	// 1. 初始化会话的 Context (上下文内存)
-	// 在真实的场景中，这里会由动态 Prompt 组装器加载 AGENTS.md。目前我们先硬编码。
-	contextHistory := []schema.Message{
-		{
-			Role:    schema.RoleSystem,
-			Content: "You are go-tiny-claw, an expert coding assistant. You have full access to tools in the workspace.",
-		},
-		{
-			Role:    schema.RoleUser,
-			Content: userPrompt,
-		},
-	}
+    // 【核心修改】动态组装 System Prompt，彻底替换掉以前硬编码的面条提示词！
+    systemMsg := e.composer.Build()
 
-	turnCount := 0
+    contextHistory := []schema.Message{
+        // {Role: schema.RoleSystem, Content: "You are go-tiny-claw, an expert coding assistant."},
+        systemMsg, // 注入动态组装的内核、AGENTS.md 与 Skills
+        {Role: schema.RoleUser, Content: userPrompt},
+    }
 
-	// 2. The Main Loop: 心跳开始 (标准的 ReAct 循环)
-	for {
-		turnCount++
-		log.Printf("========== [Turn %d] 开始 ==========\n", turnCount)
+    turnCount := 0
 
-		// 获取当前挂载的所有工具定义
-		availableTools := e.registry.GetAvailableTools()
+    for {
+        turnCount++
+        availableTools := e.registry.GetAvailableTools()
 
-		// 向大模型发起推理请求 (包含 Reasoning)
-		log.Println("[Engine] 正在思考 (Reasoning)...")
-		responseMsg, err := e.provider.Generate(ctx, contextHistory, availableTools)
-		if err != nil {
-			return fmt.Errorf("模型生成失败: %w", err)
-		}
+        // ================= Phase 1: Thinking =================
+        if e.EnableThinking {
+            if reporter != nil {
+                // 【触发 Reporter】: 开始慢思考
+                reporter.OnThinking(ctx)
+            }
 
-		// 将模型的响应完整追加到上下文历史中
-		contextHistory = append(contextHistory, *responseMsg)
+            thinkResp, err := e.provider.Generate(ctx, contextHistory, nil)
+            if err != nil {
+                return fmt.Errorf("Thinking 生成失败: %w", err)
+            }
+            if thinkResp.Content != "" {
+                contextHistory = append(contextHistory, *thinkResp)
+            }
+        }
 
-		// 如果模型回复了纯文本，打印出来 (这通常是它的思考过程，或是最终结果)
-		if responseMsg.Content != "" {
-			fmt.Printf("🤖 模型: %s\n", responseMsg.Content)
-		}
+        // ================= Phase 2: Action =================
+        actionResp, err := e.provider.Generate(ctx, contextHistory, availableTools)
+        if err != nil {
+            return fmt.Errorf("Action 生成失败: %w", err)
+        }
 
-		// 3. 退出条件判断
-		// 如果模型没有请求任何工具调用，说明它认为任务已经完成，跳出循环。
-		if len(responseMsg.ToolCalls) == 0 {
-			log.Println("[Engine] 任务完成，退出循环。")
-			break
-		}
+        contextHistory = append(contextHistory, *actionResp)
 
-		// 4. 执行行动 (Action) 与 获取观察结果 (Observation)
-		log.Printf("[Engine] 模型请求调用 %d 个工具...\n", len(responseMsg.ToolCalls))
+        if actionResp.Content != "" && reporter != nil {
+            // 【触发 Reporter】: 输出阶段性总结或最终回复
+            reporter.OnMessage(ctx, actionResp.Content)
+        }
 
-		// ---------- 方案 A：串行执行（原实现，保留用于对比） ----------
-		// 多个工具调用逐个执行，耗时 = 各工具耗时之和；执行顺序天然有序，有依赖的命令不会出问题。
-		//
-		// for _, toolCall := range responseMsg.ToolCalls {
-		// 	log.Printf("  -> 🛠️ 执行工具: %s, 参数: %s\n", toolCall.Name, string(toolCall.Arguments))
-		//
-		// 	// 通过 Registry 路由并执行底层工具
-		// 	result := e.registry.Execute(ctx, toolCall)
-		//
-		// 	if result.IsError {
-		// 		log.Printf("  -> ❌ 工具执行报错: %s\n", result.Output)
-		// 	} else {
-		// 		log.Printf("  -> ✅ 工具执行成功 (返回 %d 字节)\n", len(result.Output))
-		// 	}
-		//
-		// 	// 将工具执行的观察结果 (Observation) 封装为 User Message 追加到上下文中
-		// 	// 注意：ToolCallID 必须携带！这是维系大模型推理链条的关键
-		// 	observationMsg := schema.Message{
-		// 		Role:       schema.RoleUser,
-		// 		Content:    result.Output,
-		// 		ToolCallID: toolCall.ID,
-		// 	}
-		// 	contextHistory = append(contextHistory, observationMsg)
-		// }
+        // ================= 执行退出与并发控制 =================
+        if len(actionResp.ToolCalls) == 0 {
+            break
+        }
 
-		// ---------- 方案 B：并行执行（当前启用） ----------
-		// 同一轮的多个工具调用并行执行，耗时 ≈ 最慢的那一个；每个 goroutine 只写 results[i]，无需加锁
-		calls := responseMsg.ToolCalls
-		results := make([]schema.ToolResult, len(calls))
-		var wg sync.WaitGroup
-		for i, toolCall := range calls {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				log.Printf("  -> 🛠️ 执行工具: %s(%s), 参数: %s\n", toolCall.Name, toolCall.ID, string(toolCall.Arguments))
+        observationMsgs := make([]schema.Message, len(actionResp.ToolCalls))
+        var wg sync.WaitGroup
 
-				// 通过 Registry 路由并执行底层工具
-				results[i] = e.registry.Execute(ctx, toolCall)
+        for i, toolCall := range actionResp.ToolCalls {
+            wg.Add(1)
 
-				if results[i].IsError {
-					log.Printf("  -> ❌ 工具执行报错: %s(%s): %s\n", toolCall.Name, toolCall.ID, results[i].Output)
-				} else {
-					log.Printf("  -> ✅ 工具执行成功: %s(%s) (返回 %d 字节)\n", toolCall.Name, toolCall.ID, len(results[i].Output))
-				}
-			}()
-		}
-		wg.Wait()
+            go func(idx int, call schema.ToolCall) {
+                defer wg.Done()
 
-		// 按原调用顺序回填 Observation，保证上下文与模型发出的 tool call 一一对应
-		// 注意：ToolCallID 必须携带！这是维系大模型推理链条的关键
-		for i, toolCall := range calls {
-			contextHistory = append(contextHistory, schema.Message{
-				Role:       schema.RoleUser,
-				Content:    results[i].Output,
-				ToolCallID: toolCall.ID,
-			})
-		}
+                if reporter != nil {
+                    // 【触发 Reporter】: 报告即将在底层执行的工具
+                    reporter.OnToolCall(ctx, call.Name, string(call.Arguments))
+                }
 
-		// 循环回到开头，模型将带着新加入的 Observation 继续它的下一轮思考...
-	}
+                result := e.registry.Execute(ctx, call)
 
-	return nil
+                if reporter != nil {
+                    // 为了防止大文件读取导致飞书消息过长被截断，我们仅汇报工具执行状态
+                    // 注意：传递给大模型的 observationMsgs 依然是完整数据，只是人类看到的 Reporter 是缩略版
+                    displayOutput := result.Output
+                    if len(displayOutput) > 200 {
+                        displayOutput = displayOutput[:200] + "... (已截断)"
+                    }
+                    // 【触发 Reporter】: 汇报工具物理执行的结果
+                    reporter.OnToolResult(ctx, call.Name, displayOutput, result.IsError)
+                }
+
+                observationMsgs[idx] = schema.Message{
+                    Role:       schema.RoleUser,
+                    Content:    result.Output,
+                    ToolCallID: call.ID,
+                }
+            }(i, toolCall)
+        }
+
+        wg.Wait()
+
+        for _, obs := range observationMsgs {
+            contextHistory = append(contextHistory, obs)
+        }
+    }
+
+    return nil
 }
