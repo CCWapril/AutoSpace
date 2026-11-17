@@ -32,7 +32,7 @@
 
 课程暗线是"框架坍塌，Harness 崛起"：模型自己会规划和调工具后，LangChain、AutoGen 这类重框架反而成了黑盒，状态藏在内存里，开发者插不上手。“大道至简”的核心：极简工具法则 Minimal Toolset、状态外部化 Externalized State、YOLO哲学与防御纵深。Harness架构图：
 
-![Harness 整体架构图](image/MainLoop.png)
+![Harness 整体架构图](images/MainLoop.png)
 
 ---
 
@@ -42,7 +42,7 @@
 
 - Main Loop - ReAct (Reason + Act) 循环：思考（Reason / Thought） → 调用工具(Action) → 观察(Observe) → 再思考。参考论文：[ReAct: Synergizing Reasoning and Acting in Language Models](https://arxiv.org/pdf/2210.03629)
 
-![Harness 整体架构图](image/DAG.png)
+![Harness 整体架构图](images/DAG.png)
 
 - 多模型适配层：接 Claude 和 OpenAI 兼容 API
 - 引入 Thinking 慢思考机制，提升复杂任务规划成功率
@@ -52,7 +52,7 @@
 - Tool Registry 统一注册工具
 - 极简工具哲学：工具少而精，不堆几十个工具描述
 - 健壮的 Edit 工具：支持多级模糊匹配
-- 用 Go 并发做并行工具执行（Go 语言基础与并发见：[Go 语言精讲教材](go/Go语言精讲教材.md)）
+- 用 Go 并发做并行工具执行（Go 语言基础与并发见：[Go 语言精讲教材](../tutorials/go/Go语言精讲教材.md)）
 
 ### 3. 上下文工程（Context Engineering）
 
