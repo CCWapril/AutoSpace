@@ -8,3 +8,4 @@ Harness/go-tiny-claw/internal/engine/loop_test.go
 
 # go-tiny-claw 本地草稿，不上传
 Harness/go-tiny-claw/cmd/claw/_main.go
+Harness/go-tiny-claw/cmd/claw/__main.go

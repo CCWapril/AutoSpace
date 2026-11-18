@@ -53,10 +53,11 @@ func (p *OpenAIProvider) Generate(ctx context.Context, msgs []schema.Message, av
         case schema.RoleAssistant:
             astParam := openai.ChatCompletionAssistantMessageParam{}
 
-            if msg.Content != "" {
-                astParam.Content = openai.ChatCompletionAssistantMessageParamContentUnion{
-                    OfString: openai.String(msg.Content),
-                }
+            // 【关键坑】智谱 GLM 端点要求带 tool_calls 的 assistant 消息必须显式携带
+            // content 字段（哪怕为空串），否则返回 400。而 SDK 在字段未设置时会整段省略
+            // content 键。因此这里始终显式设置，openai.String("") 会被序列化为 "content": ""。
+            astParam.Content = openai.ChatCompletionAssistantMessageParamContentUnion{
+                OfString: openai.String(msg.Content),
             }
 
             // 【重要】如果历史包含 ToolCalls，必须原样放回，以维系大模型的逻辑链

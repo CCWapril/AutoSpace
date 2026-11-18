@@ -72,7 +72,6 @@
 ### 3. 上下文工程（Context Engineering）
 
 - 系统提示词 Prompt 动态组装
-- 超长文本阶梯降级压缩（Compaction）
 ![Prompt](images/prompt.png)
     - skill规范(渐进式暴露 Progressive Disclosure)
     ```text
@@ -82,26 +81,48 @@
     ├── references/       # 选填：参考文档
     └── assets/           # 选填：模板或静态资源
     ```
-
+- 多端并发的Session（会话）物理隔离
+- 超长文本阶梯降级压缩（Compaction）
+    - Observation Masking 掩码 & Head-Tail Truncation 触发截断
+        - System Prompt（直接保留）
+        - 远期历史（直接替换）
+        - Working Memory（掐头去尾）
 - **记忆和待办外部化到文件系统**，不用内部状态机
+    - 复杂任务 —> Plan Mode（计划+状态）文件系统记忆法（File-based Memory）
+- 上下文感知的Error Recovery提示模板注入
+    - 定义错误分类器与模板 Domain Error Codes
+    - 将 recovery 机制缝合进main loop
 
 ### 4. 稳定性与多智能体(Safety & Coordination)
 
-- Reminders 斩断死循环
-- Middleware 拦截危险操作，高危动作走人工审批
+- Reminders 斩断死循环 Doom Loop/Exploration Spiral
+    - 大模型行为陷阱：上下文内容分布偏移、近因偏差
+    - system reminder：高优先级引导新的user message
+- Middleware 拦截危险操作，高危动作走人工审批 Human-in-the-loop
+    - Middleware / Hook 模式：统一拦截点、审批通道、Human-in-the-loop、放行或阻断
+![Midddleware](images/Human-in-the-loop.png)
 - Subagent 隔离复杂任务，避免污染主上下文
+    - 主agent/子agent（普通工具）
 
 ### 5. 可观测与度量(Observability & Evaluation)
 
 - Tracing 链路追踪
+    - 模型适配器 Provider Adapter
+    - CostTracker中间件：提取token、更新session、记录time、返回结果
+    - Agent链路追踪：根 root、子 child、叶子 leaf，输出json记录执行链路
 - 成本审计
-- 自动化 Benchmark，用数据衡量每次改动是否变好
+    - Prompt Tokens
+    - Completion Tokens
+- 自动化 Benchmark，用数据衡量 evaluation 每次改动是否变好
+    - 经典评测集：SWE-bench
+    - 靶机->设定指令->客观断言->计算得分
 
 ### 6. 端到端实战(End-to-End Practice)
 
 - 一个 CLI 工具
+![agent-CLI](images/agent-CLI.png)
 - 一个飞书群里的 AgentOps 运维自动化助手
-
+![agent-feishu](images/agent-feishu.png)
 ---
 
 ## 四、五条核心设计原则
@@ -111,6 +132,7 @@
 3. **状态外部化**：记忆、待办存文件系统，可审计、可恢复、可人工介入
 4. **上下文当内存管**：必须有回收策略
 5. **先度量再优化**：没有 Benchmark 就没有进步
+![overview](images/overview.png)
 
 <!-- ## 五、学习建议
 

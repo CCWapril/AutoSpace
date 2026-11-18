@@ -2,49 +2,64 @@
 package main
 
 import (
-    "context"
-    "log"
-    "os"
+	"context"
+	"flag"
+	"fmt"
+	"log"
+	"os"
 
-    "github.com/larksuite/oapi-sdk-go/v3/core/httpserverext"
-    "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/engine"
-    "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/feishu"
-    "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/provider"
-    // "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/schema"
-    "github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/tools"
+	"github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/engine"
+	"github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/provider"
+	"github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/schema"
+	"github.com/CCWapril/AutoSpace/Harness/go-tiny-claw/internal/tools"
 )
 
 func main() {
-    // 1. 初始化引擎依赖
-    workDir, _ := os.Getwd()
+	// 通过命令行参数接收用户prompt
+	promptPtr := flag.String("prompt", "", "要交给agent执行任务描述")
+	flag.Parse()
 
-    // 默认使用智谱 GLM-4
-    if os.Getenv("ZHIPU_API_KEY") == "" {
-        log.Fatal("请先导出 ZHIPU_API_KEY 环境变量")
-    }
-    llmProvider := provider.NewZhipuOpenAIProvider("glm-4.5-air")
+	if *promptPtr == "" {
+		fmt.Println("用法: go run cmd/claw/main.go -prompt \"你的任务指令\"")
+		os.Exit(1)
+	}
 
-    registry := tools.NewRegistry()
-    registry.Register(tools.NewReadFileTool(workDir))
-    registry.Register(tools.NewWriteFileTool(workDir))
-    registry.Register(tools.NewBashTool(workDir))
-    registry.Register(tools.NewEditFileTool(workDir))
+	if os.Getenv("ZHIPU_API_KEY") == "" {
+		log.Fatal("请先导出 ZHIPU_API_KEY 环境变量")
+	}
 
-    // 开启慢思考
-    eng := engine.NewAgentEngine(llmProvider, registry, workDir, true)
+	workDir, _ := os.Getwd()
+	llmProvider := provider.NewZhipuOpenAIProvider("glm-4.5-air")
 
-    // 2. 初始化飞书 Bot 调度器
-    bot := feishu.NewFeishuBot(eng)
-    handler := httpserverext.NewEventHandlerFunc(bot.GetEventDispatcher())
+	// 注册工具
+	registry := tools.NewRegistry()
+	registry.Register(tools.NewReadFileTool(workDir))
+	registry.Register(tools.NewWriteFileTool(workDir))
+	registry.Register(tools.NewBashTool(workDir))
+	registry.Register(tools.NewEditFileTool(workDir))
 
-    // 3. 注册路由并启动 HTTP 服务
-    http.HandleFunc("/webhook/event", handler)
+	// 实例化引擎 (关闭思考模式以提速,planmode开启)
+	eng := engine.NewAgentEngine(llmProvider, registry, false, true)
+	reporter := engine.NewTerminalReporter()
 
-    port := ":48080"
-    log.Printf("🚀 go-tiny-claw 飞书服务端已启动，正在监听 %s 端口\n", port)
+	// sessionID := "test_oom_protection_001"
+	sessionID := "task_web_server_01"
+	sess := engine.GlobalSessionMgr.GetOrCreate(sessionID, workDir)
 
-    err := http.ListenAndServe(port, nil)
-    if err != nil {
-        log.Fatalf("服务器启动失败: %v", err)
-    }
+	// 发起一个会导致读取大文件的恶意任务
+	// prompt := `
+	// 请帮我执行以下三个步骤：
+	// 1. 使用 bash 执行 echo "开始排查日志"
+	// 2. 使用 read_file 工具读取当前目录下的巨大文件 mock_log.txt
+	// 3. 使用 bash 执行 date 命令获取当前时间，并告诉我任务全部完成。
+	// `
+	// 固定sessionID，重启后内存历史依然存在
+	log.Printf("\n>>> 🚀 收到指令: %s\n", *promptPtr)
+
+	sess.Append(schema.Message{Role: schema.RoleUser, Content: *promptPtr})
+
+	err := eng.Run(context.Background(), sess, reporter)
+	if err != nil {
+		log.Fatalf("引擎运行崩溃: %v", err)
+	}
 }
