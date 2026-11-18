@@ -1936,42 +1936,51 @@ console.log("最终:", step.value.status);
 
 <a id="ch09-s01"></a>
 
-## 附录 A　Python → TypeScript 对照
+## 附录 A　Python → TypeScript → Go 对照
 
-| Python | TypeScript |
-|---|---|
-| `x: int = 1` | `const x: number = 1` |
-| `list[int]` / `dict[str, int]` | `number[]` / `Record<string, number>`（或 `Map`） |
-| `tuple[str, int]` | `[string, number]` |
-| `Optional[str]` | `string \| undefined` |
-| `Union[int, str]` | `number \| string` |
-| `Literal["a", "b"]` | `"a" \| "b"` |
-| `Any` | `any`（尽量用 `unknown`） |
-| `TypeVar("T")` | `<T>` |
-| `Protocol` / `TypedDict` | `interface`（结构化类型天然支持） |
-| `Enum` | 字面量联合 + `as const` |
-| `pydantic.BaseModel` | `zod` schema + `z.infer` |
-| `f"hi {name}"` | `` `hi ${name}` `` |
-| `[x*2 for x in xs]` | `xs.map(x => x * 2)` |
-| `[x for x in xs if x > 0]` | `xs.filter(x => x > 0)` |
-| `{**a, **b}` | `{ ...a, ...b }` |
-| `d.get(k, default)` | `obj[k] ?? default` |
-| `for k, v in d.items()` | `for (const [k, v] of Object.entries(obj))` |
-| `async def` / `await` | `async function` / `await` |
-| `asyncio.gather(*ts)` | `Promise.all(ts)` |
-| `raise ValueError("x")` | `throw new Error("x")` |
-| `try/except E as e` | `try/catch (e)`，`e` 是 `unknown` |
-| `json.loads(s)` | `JSON.parse(s)`（返回 `any`，务必校验） |
-| `pytest` | `vitest` |
-| `pip` / venv | `npm` / `pnpm` + `node_modules` |
+| Python | TypeScript | Go |
+|---|---|---|
+| `x: int = 1` | `const x: number = 1` | `x := 1`（或 `var x int = 1`） |
+| `list[int]` / `dict[str, int]` | `number[]` / `Record<string, number>`（或 `Map`） | `[]int` / `map[string]int` |
+| `tuple[str, int]` | `[string, number]` | 无元组，用多返回值 `(string, int)` 或 `struct` |
+| `Optional[str]` | `string \| undefined` | `*string`（指针，`nil` 表无值） |
+| `Union[int, str]` | `number \| string` | 无原生联合，用 `any` 或 sealed interface |
+| `Literal["a", "b"]` | `"a" \| "b"` | `type Mode string` + 常量 |
+| `Any` | `any`（尽量用 `unknown`） | `any`（即 `interface{}`） |
+| `TypeVar("T")` | `<T>` | `[T any]`（泛型，Go 1.18+） |
+| `Protocol` / `TypedDict` | `interface`（结构化类型天然支持） | `interface`（方法集，**隐式实现**） |
+| `Enum` | 字面量联合 + `as const` | `iota` 常量组 + 自定义类型 |
+| `pydantic.BaseModel` | `zod` schema + `z.infer` | `struct` + tag + `encoding/json`（校验用 validator 库） |
+| `f"hi {name}"` | `` `hi ${name}` `` | `fmt.Sprintf("hi %s", name)` |
+| `[x*2 for x in xs]` | `xs.map(x => x * 2)` | `for` 循环（1.21+ 可用 `slices`） |
+| `[x for x in xs if x > 0]` | `xs.filter(x => x > 0)` | `for` + `append` |
+| `{**a, **b}` | `{ ...a, ...b }` | `maps.Copy(dst, src)`（1.21+） |
+| `d.get(k, default)` | `obj[k] ?? default` | `v, ok := m[k]; if !ok { v = default }` |
+| `for k, v in d.items()` | `for (const [k, v] of Object.entries(obj))` | `for k, v := range m` |
+| `async def` / `await` | `async function` / `await` | goroutine + channel（无 async/await） |
+| `asyncio.gather(*ts)` | `Promise.all(ts)` | `sync.WaitGroup` 或 `errgroup.Group` |
+| `raise ValueError("x")` | `throw new Error("x")` | `return fmt.Errorf("x")`（错误是值） |
+| `try/except E as e` | `try/catch (e)`，`e` 是 `unknown` | `if err != nil { ... }`（panic 仅用于不可恢复） |
+| `json.loads(s)` | `JSON.parse(s)`（返回 `any`，务必校验） | `json.Unmarshal([]byte(s), &v)` |
+| `pytest` | `vitest` | `go test`（标准库 `testing`） |
+| `pip` / venv | `npm` / `pnpm` + `node_modules` | `go mod` / `go get` |
 
-思维差异：
+思维差异（TypeScript 相对 Python）：
 
 1. Python 类型提示不强制，TS 类型检查在编译期**强制**，但同样运行时不存在
 2. TS 是**结构化类型**，只看形状，不看名字
 3. JS 有 `null` 和 `undefined` 两个空值，有 `==` 隐式转换、`this` 丢失这类坑
 4. 数字只有 `number`；对象既是实例也是字典，严格的键值表用 `Map`
 5. `[] === []` 为 `false`，比较的是引用
+
+思维差异（Go 相对前两者）：
+
+1. **错误是值，不是异常**：没有 `try/catch`，函数用多返回值 `(T, error)` 显式传播错误，`if err != nil` 是主旋律；`panic`/`recover` 只留给真正不可恢复的情形
+2. **并发是 goroutine + channel**（CSP 模型），不是 async/await：信条是"不要通过共享内存来通信，而要通过通信来共享内存"
+3. **接口隐式实现**：类型只要拥有对应方法集就自动满足接口，无需 `implements` 声明——和 TS 的结构化类型异曲同工，但作用于方法而非字段
+4. **零值可用**：变量声明即带确定零值（`0`/`""`/`nil`/`false`），不像 JS 有 `undefined`/`null` 两套空值
+5. **没有继承，只有组合**：通过 struct 嵌入复用，没有类层级
+6. **类型系统刻意精简**：无联合类型、无三元运算符、无默认参数；泛型直到 1.18 才加入，枚举要靠 `iota` 模拟
 
 <a id="ch09-s02"></a>
 
@@ -2005,7 +2014,7 @@ function f<T extends object, K extends keyof T>(x: T, k: K): T[K] { return x[k];
 
 <a id="ch09-s03"></a>
 
-## 附录 C　检查清单
+<!-- ## 附录 C　检查清单
 
 读完后对照：
 
@@ -2016,11 +2025,11 @@ function f<T extends object, K extends keyof T>(x: T, k: K): T[K] { return x[k];
 - [ ] 能正确处理并发、取消、超时、重试
 - [ ] 能手写第 8 章的 Agent 循环，并用假模型测试
 - [ ] 能把假模型换成真实模型，说清楚每一步的校验在哪
-- [ ] 能说出 Agent 上线前至少 5 项护栏
+- [ ] 能说出 Agent 上线前至少 5 项护栏 -->
 
 <a id="ch09-s04"></a>
 
-## 附录 D　延伸阅读
+## 附录 C　延伸阅读
 
 | 资源 | 说明 |
 |---|---|
