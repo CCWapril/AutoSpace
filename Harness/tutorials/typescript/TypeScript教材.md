@@ -1936,7 +1936,7 @@ console.log("最终:", step.value.status);
 
 <a id="ch09-s01"></a>
 
-## 附录 A　Python → TypeScript → Go 对照
+## 附录 A　Python → TypeScript → Go 对照 
 
 | Python | TypeScript | Go |
 |---|---|---|
