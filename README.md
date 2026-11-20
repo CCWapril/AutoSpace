@@ -45,6 +45,7 @@ AutoSpace/
 - **密钥不入库**：`.env` 已在 `.gitignore` 中，API Key 等一律通过环境变量或 `.env` 提供，不要写进代码或文档。
 - **练习代码不上传**：各教材下的 `practice/` 目录是本地练习区，已被 `.gitignore` 忽略。
 - **本地草稿**：`go-tiny-claw` 里的 `loop_test.go`、`cmd/claw/_main.go` 也被忽略，仅在本地使用。
+- **IDE 配置不入库**：`.idea/`、`.vscode/`、`*.iml` 等编辑器配置已被 `.gitignore` 忽略，各自本地维护。
 
 ## 说明
 
