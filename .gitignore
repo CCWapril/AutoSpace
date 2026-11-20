@@ -1,5 +1,10 @@
 .env
 
+# IDE 配置不上传
+.idea/
+.vscode/
+*.iml
+
 # 练习代码不上传
 **/practice/
 
