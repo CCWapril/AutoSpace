@@ -1,0 +1,12 @@
+{
+  "id": "automation-1783310552150",
+  "name": "每周论文周报并入库 Scaling Up 知识库",
+  "status": "ACTIVE",
+  "scheduleType": "recurring",
+  "schedule": "每周一 10:00（Asia/Shanghai）",
+  "workspaceScope": "workspace",
+  "cwds": [
+    "/Users/aprilche/WorkBuddy/Claw"
+  ],
+  "prompt": "任务：每周论文检索，一次搜索同时产出“极简周报”和“入库 ima Scaling Up知识库”（知识库ID: ima_kb_ykaNB5l5，folder_id 传空字符串=根目录）。\n\n【搜索范围】检索截止日=执行当天，起始日=截止日往前 90 天，只收首次公开/发表日期在该窗口内的论文。\n\n【并行搜索 5 个方向】（用并行 WebSearch / domain_search 同时检索）\n1. ICLR / NeurIPS / KDD / WWW 等顶会近一年录用论文（优先与推荐/广告/Scaling/LLM/多模态相关，且在 90 天窗口内公开或发布 camera-ready）\n2. 腾讯 / 字节 / 谷歌 / Meta / 阿里 / 快手 等工业论文（必须有线上 A/B 收益或明确落地指标）\n3. 搜广推 CTR / CVR 最新论文（重点关注多场景 / 多任务 / Scaling Law 方向，如 MDL、MMoE、STAR、PEPNet、RankMixer 类）\n4. LLM 推理 / Agent 最新论文\n5. HuggingFace Daily/Trending Papers 本周高赞论文\n\n【筛选与核验】\n- 合并去重后筛选 10 篇（建议配比：搜广推与工业论文约 5-6 篇，LLM推理/Agent/HF 高赞约 4-5 篇，用户主要关注推荐系统 Scaling Up 与多场景建模）。\n- 每篇打开一手页面（arXiv / 会议官网 / 公司研究页）核验：标题、首次提交日期、作者机构、论文状态（预印本 / 已录用 / 已发表，不得把 arXiv 预印本写成已录用）、关键方法、量化结果（未披露则写“未披露具体数值”）。机构无法从一手页面确认时明确标注，不要猜。\n- 不引用二手媒体夸张数字；不为凑数放宽日期边界（不足 10 篇就如实说明）。\n\n【写入知识库】\n- 先用 ToolSearch 加载 mcp__ima-mcp-oa__import_urls，再通过 DeferExecuteTool 调用：knowledge_base_id=ima_kb_ykaNB5l5，folder_id=\"\"，urls=10 篇论文的一手原文链接（arXiv abs 或 pdf 链接优先，最多 10 个/次）。\n- 若单个链接导入失败，记录失败项并重试一次；仍失败则在汇报中列出，请用户手动补充。\n\n【极简周报输出】用中文、要点式、极简：检索窗口起止日期；10 篇清单（中文标题 / 英文标题 / 日期 / 机构 / 状态 / 一句话做了什么 + 关键结果 / 原文链接）；入库成功与失败情况；一句话本周趋势。数据变化在原值后内联标注百分比。"
+}

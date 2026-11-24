@@ -1,0 +1,23 @@
+{
+  "schedule": "每日 09:00（Asia/Shanghai）",
+  "initialTarget": {
+    "Scaling Up": 21,
+    "推荐系统文献知识库": 100
+  },
+  "knowledgeBases": [
+    {
+      "name": "Scaling Up",
+      "displayName": "Scaling Up",
+      "shareId": "d9f54f5c112c5bb83120f6a2ec58222786ceb0e15bfc57703a9e4c8e0b7a4070"
+    },
+    {
+      "name": "推荐系统文献知识库",
+      "displayName": "推荐系统文献",
+      "shareId": "cb6c77c77a8ab33d90435d3acf1ed6b26ee8560a2ecd6ad35ff059eb459fa4d8"
+    }
+  ],
+  "wiki": {
+    "url": "https://iwiki.woa.com/p/4017698622",
+    "mode": "placeholder"
+  }
+}

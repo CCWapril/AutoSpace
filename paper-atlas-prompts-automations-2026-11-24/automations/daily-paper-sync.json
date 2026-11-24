@@ -1,0 +1,12 @@
+{
+  "id": "7505d385-901a-47ac-9e90-cc113a926848",
+  "name": "论文知识库每日同步",
+  "status": "ACTIVE",
+  "scheduleType": "recurring",
+  "schedule": "每日 09:00（Asia/Shanghai）",
+  "workspaceScope": "workspace",
+  "cwds": [
+    "/Users/aprilche/WorkBuddy/2026-11-03-15-38-52"
+  ],
+  "prompt": "为“论文知识库”网站执行 ima 文献增量同步。严格遵循项目中的 sync/runbook.md 和 sync/config.json：使用 ima（司内 iOA 版）连接器分别定位“Scaling Up”和“推荐系统文献知识库”，读取自上次成功水位以来的新条目及边界重叠项，提取标题、作者机构、原文摘要、arXiv 和日期，基于真实内容生成并标注 AI 中文标题/摘要，使用 sync/normalize.mjs 清洗去重，通过当前项目的 WorkBuddy Cloud 数据库管理工具幂等写入 papers 和 paper_sources，并更新 sync_runs 的状态与统计。首次补齐目标是 Scaling Up 全部 21 条和推荐库最新 100 条；当前已导入 31 条，不得重复插入。企业正文不得保存到本地或云端，只保存已确认公开的元数据和摘要。若 ima 返回 unauthorized 或授权失效，不要反复重试，不要伪造成功；写入一条 failed 的 sync_runs（如可写），并向用户明确报告需要重新连接 ima。"
+}
